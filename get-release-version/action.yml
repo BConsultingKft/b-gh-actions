@@ -1,0 +1,46 @@
+name: 'Get Release Version'
+description: 'Gets the latest release version or validates a provided version'
+branding:
+  icon: 'tag'
+  color: 'blue'
+
+inputs:
+  release:
+    description: 'Release version to use (use <<latest>> for latest release)'
+    required: false
+    default: '<<latest>>'
+  github-token:
+    description: 'GitHub token for API access'
+    required: true
+
+outputs:
+  version:
+    description: 'The resolved release version'
+    value: ${{ steps.get-version.outputs.version }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Get release version
+      id: get-version
+      shell: bash
+      run: |
+        if [ "${{ inputs.release }}" = "<<latest>>" ]; then
+          # Get latest release version
+          RELEASE_VERSION=$(gh release list --limit 1 | cut -f1)
+          if [ -z "$RELEASE_VERSION" ]; then
+            echo "No releases found"
+            exit 1
+          fi
+        else
+          # Validate provided release version exists
+          RELEASE_VERSION="${{ inputs.release }}"
+          if ! gh release view "$RELEASE_VERSION" &>/dev/null; then
+            echo "Release $RELEASE_VERSION not found"
+            exit 1
+          fi
+        fi
+        echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+        echo "Using release version: $RELEASE_VERSION"
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}

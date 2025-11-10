@@ -1,0 +1,52 @@
+name: 'PR Comment Handler'
+description: 'Gets PR details and checks out PR branch from issue comment'
+branding:
+  icon: 'git-pull-request'
+  color: 'purple'
+
+inputs:
+  github-token:
+    description: 'GitHub token for API access'
+    required: true
+
+outputs:
+  pr-number:
+    description: 'Pull request number'
+    value: ${{ steps.get-pr.outputs.pr-number }}
+  pr-ref:
+    description: 'Pull request branch ref'
+    value: ${{ steps.get-pr.outputs.pr-ref }}
+  pr-sha:
+    description: 'Pull request HEAD SHA'
+    value: ${{ steps.get-pr.outputs.pr-sha }}
+  pr-repo:
+    description: 'Pull request repository full name'
+    value: ${{ steps.get-pr.outputs.pr-repo }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Get PR details
+      id: get-pr
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const { data: pullRequest } = await github.rest.pulls.get({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: context.issue.number
+          });
+
+          core.setOutput('pr-number', context.issue.number);
+          core.setOutput('pr-ref', pullRequest.head.ref);
+          core.setOutput('pr-sha', pullRequest.head.sha);
+          core.setOutput('pr-repo', pullRequest.head.repo.full_name);
+
+          return pullRequest;
+
+    - name: Checkout PR
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ steps.get-pr.outputs.pr-ref }}
+        repository: ${{ steps.get-pr.outputs.pr-repo }}

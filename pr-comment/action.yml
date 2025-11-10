@@ -1,0 +1,31 @@
+name: 'PR Comment'
+description: 'Posts a comment on a pull request'
+branding:
+  icon: 'message-circle'
+  color: 'blue'
+
+inputs:
+  github-token:
+    description: 'GitHub token for API access'
+    required: true
+  pr-number:
+    description: 'Pull request number'
+    required: true
+  message:
+    description: 'Comment message to post'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Post PR comment
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          github.rest.issues.createComment({
+            issue_number: ${{ inputs.pr-number }},
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `${{ inputs.message }}`
+          })

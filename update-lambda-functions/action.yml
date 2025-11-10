@@ -1,0 +1,85 @@
+name: 'Update Lambda Functions'
+description: 'Updates multiple Lambda functions with a package from S3'
+branding:
+  icon: 'refresh-cw'
+  color: 'yellow'
+
+inputs:
+  function-prefix:
+    description: 'Prefix to filter Lambda functions (e.g., "my-app-prod")'
+    required: true
+  s3-bucket:
+    description: 'S3 bucket containing the Lambda package'
+    required: true
+  s3-key:
+    description: 'S3 object key for the Lambda package'
+    required: true
+  s3-version-id:
+    description: 'S3 object version ID to deploy'
+    required: true
+
+outputs:
+  updated-functions:
+    description: 'Comma-separated list of updated function names'
+    value: ${{ steps.update.outputs.functions }}
+  function-count:
+    description: 'Number of functions updated'
+    value: ${{ steps.update.outputs.count }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Update Lambda functions
+      id: update
+      shell: bash
+      run: |
+        echo "Updating Lambda functions..."
+        echo "- Function prefix: ${{ inputs.function-prefix }}"
+        echo "- S3 bucket: ${{ inputs.s3-bucket }}"
+        echo "- S3 key: ${{ inputs.s3-key }}"
+        echo "- S3 version ID: ${{ inputs.s3-version-id }}"
+        echo ""
+
+        # Get list of Lambda functions with the prefix
+        FUNCTIONS=$(aws lambda list-functions \
+          --query "Functions[?starts_with(FunctionName, '${{ inputs.function-prefix }}')].FunctionName" \
+          --output text)
+
+        if [ -z "$FUNCTIONS" ]; then
+          echo "⚠️  No Lambda functions found with prefix: ${{ inputs.function-prefix }}"
+          echo "functions=" >> $GITHUB_OUTPUT
+          echo "count=0" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        echo "Found $(echo $FUNCTIONS | wc -w) function(s) to update:"
+        echo "$FUNCTIONS" | tr '\t' '\n' | sed 's/^/  - /'
+        echo ""
+
+        # Update each function
+        UPDATED_FUNCTIONS=()
+        for func in $FUNCTIONS; do
+          echo "Updating function: $func"
+          aws lambda update-function-code \
+            --function-name "$func" \
+            --s3-bucket "${{ inputs.s3-bucket }}" \
+            --s3-key "${{ inputs.s3-key }}" \
+            --s3-object-version "${{ inputs.s3-version-id }}" \
+            --output text > /dev/null
+
+          if [ $? -eq 0 ]; then
+            echo "  ✅ Updated successfully"
+            UPDATED_FUNCTIONS+=("$func")
+          else
+            echo "  ❌ Failed to update"
+            exit 1
+          fi
+        done
+
+        # Output results
+        FUNCTION_LIST=$(IFS=,; echo "${UPDATED_FUNCTIONS[*]}")
+        echo "functions=$FUNCTION_LIST" >> $GITHUB_OUTPUT
+        echo "count=${#UPDATED_FUNCTIONS[@]}" >> $GITHUB_OUTPUT
+
+        echo ""
+        echo "✅ Successfully updated ${#UPDATED_FUNCTIONS[@]} Lambda function(s)"

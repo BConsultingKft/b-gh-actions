@@ -1,0 +1,70 @@
+name: 'Get S3 Version by Tag'
+description: 'Finds S3 object version ID by searching for a specific version tag'
+branding:
+  icon: 'search'
+  color: 'orange'
+
+inputs:
+  s3-bucket:
+    description: 'S3 bucket name'
+    required: true
+  s3-key:
+    description: 'S3 object key (path within bucket)'
+    required: true
+  version-tag:
+    description: 'Version tag to search for'
+    required: true
+
+outputs:
+  version-id:
+    description: 'S3 object version ID matching the tag'
+    value: ${{ steps.find-version.outputs.version-id }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Find S3 version by tag
+      id: find-version
+      shell: bash
+      run: |
+        echo "Searching for S3 object version..."
+        echo "- Bucket: ${{ inputs.s3-bucket }}"
+        echo "- Key: ${{ inputs.s3-key }}"
+        echo "- Version tag: ${{ inputs.version-tag }}"
+
+        # List all versions of the object
+        VERSIONS=$(aws s3api list-object-versions \
+          --bucket "${{ inputs.s3-bucket }}" \
+          --prefix "${{ inputs.s3-key }}" \
+          --query 'Versions[?Key==`${{ inputs.s3-key }}`].VersionId' \
+          --output text)
+
+        if [ -z "$VERSIONS" ]; then
+          echo "❌ No versions found for s3://${{ inputs.s3-bucket }}/${{ inputs.s3-key }}"
+          exit 1
+        fi
+
+        TARGET_VERSION=""
+        # Check each version's tags
+        for version in $VERSIONS; do
+          TAGS=$(aws s3api get-object-tagging \
+            --bucket "${{ inputs.s3-bucket }}" \
+            --key "${{ inputs.s3-key }}" \
+            --version-id "$version" \
+            --query 'TagSet[?Key==`version`].Value' \
+            --output text 2>/dev/null || echo "")
+
+          if [ "$TAGS" = "${{ inputs.version-tag }}" ]; then
+            TARGET_VERSION=$version
+            break
+          fi
+        done
+
+        if [ -z "$TARGET_VERSION" ]; then
+          echo "❌ No S3 object version found with tag: ${{ inputs.version-tag }}"
+          echo "Available versions checked: $(echo $VERSIONS | wc -w)"
+          exit 1
+        fi
+
+        echo "version-id=$TARGET_VERSION" >> $GITHUB_OUTPUT
+        echo "✅ Found matching version: $TARGET_VERSION"

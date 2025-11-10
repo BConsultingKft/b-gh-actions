@@ -1,0 +1,42 @@
+name: 'Deploy Frontend to S3 and CloudFront'
+description: 'Deploys frontend build to S3 and invalidates CloudFront cache'
+branding:
+  icon: 'globe'
+  color: 'blue'
+
+inputs:
+  build-dir:
+    description: 'Directory containing the build files'
+    required: false
+    default: 'build/'
+  s3-bucket:
+    description: 'S3 bucket name'
+    required: true
+  cloudfront-distribution-id:
+    description: 'CloudFront distribution ID'
+    required: true
+  cloudfront-paths:
+    description: 'Paths to invalidate in CloudFront'
+    required: false
+    default: '/*'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Upload to S3
+      shell: bash
+      run: |
+        echo "Uploading to S3 bucket: ${{ inputs.s3-bucket }}"
+        aws s3 sync "${{ inputs.build-dir }}" "s3://${{ inputs.s3-bucket }}" --delete
+        echo "✅ Upload to S3 completed"
+
+    - name: Invalidate CloudFront cache
+      shell: bash
+      run: |
+        echo "Invalidating CloudFront distribution: ${{ inputs.cloudfront-distribution-id }}"
+        INVALIDATION_ID=$(aws cloudfront create-invalidation \
+          --distribution-id "${{ inputs.cloudfront-distribution-id }}" \
+          --paths "${{ inputs.cloudfront-paths }}" \
+          --query "Invalidation.Id" \
+          --output text)
+        echo "✅ CloudFront invalidation created: $INVALIDATION_ID"

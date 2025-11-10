@@ -1,0 +1,68 @@
+name: 'Build and Push to ECR'
+description: 'Builds Docker image and pushes to Amazon ECR'
+branding:
+  icon: 'package'
+  color: 'orange'
+
+inputs:
+  ecr-registry:
+    description: 'ECR registry URL'
+    required: true
+  ecr-repository:
+    description: 'ECR repository name'
+    required: true
+  image-tag:
+    description: 'Docker image tag'
+    required: true
+  dockerfile:
+    description: 'Path to Dockerfile'
+    required: false
+    default: 'Dockerfile'
+  build-args:
+    description: 'Docker build arguments (space-separated, e.g., "ARG1=value1 ARG2=value2")'
+    required: false
+    default: ''
+  context:
+    description: 'Docker build context'
+    required: false
+    default: '.'
+
+outputs:
+  image:
+    description: 'Full Docker image URI with tag'
+    value: ${{ steps.build.outputs.image }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and push Docker image
+      id: build
+      shell: bash
+      run: |
+        IMAGE="${{ inputs.ecr-registry }}/${{ inputs.ecr-repository }}:${{ inputs.image-tag }}"
+
+        # Build Docker image with optional build args
+        BUILD_ARGS=""
+        if [ -n "${{ inputs.build-args }}" ]; then
+          # Convert space-separated build args to --build-arg flags
+          for arg in ${{ inputs.build-args }}; do
+            BUILD_ARGS="$BUILD_ARGS --build-arg $arg"
+          done
+        fi
+
+        echo "Building Docker image: $IMAGE"
+        docker build $BUILD_ARGS \
+          -f "${{ inputs.dockerfile }}" \
+          -t "$IMAGE" \
+          "${{ inputs.context }}"
+
+        echo "Pushing Docker image to ECR"
+        docker push "$IMAGE"
+
+        echo "image=$IMAGE" >> $GITHUB_OUTPUT
+        echo "✅ Docker image built and pushed successfully"
+        echo "Image: $IMAGE"

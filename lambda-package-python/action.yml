@@ -1,0 +1,93 @@
+name: 'Create Lambda Package (Python)'
+description: 'Creates a deployment package for Python Lambda functions'
+branding:
+  icon: 'package'
+  color: 'yellow'
+
+inputs:
+  source-dir:
+    description: 'Source directory to package (e.g., src/)'
+    required: false
+    default: 'src'
+  requirements-file:
+    description: 'Path to requirements.txt file'
+    required: false
+    default: 'requirements.txt'
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.12'
+  output-file:
+    description: 'Output zip file name'
+    required: false
+    default: 'package.zip'
+  version-tag:
+    description: 'Version tag to include in version.txt'
+    required: true
+  include-version-file:
+    description: 'Include version.txt file with metadata'
+    required: false
+    default: 'true'
+
+outputs:
+  package-path:
+    description: 'Path to the created package zip file'
+    value: ${{ steps.package.outputs.path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Create deployment package
+      id: package
+      shell: bash
+      run: |
+        echo "Creating Lambda deployment package..."
+
+        # Upgrade pip
+        python -m pip install --upgrade pip
+
+        # Create package directory
+        mkdir -p package
+
+        # Copy source files
+        if [ -d "${{ inputs.source-dir }}" ]; then
+          cp -r "${{ inputs.source-dir }}" package/
+          echo "Copied source from ${{ inputs.source-dir }}"
+        else
+          echo "Warning: Source directory ${{ inputs.source-dir }} not found"
+        fi
+
+        # Install dependencies
+        cd package
+        if [ -f "../${{ inputs.requirements-file }}" ]; then
+          pip install --target . -r "../${{ inputs.requirements-file }}"
+          echo "Installed dependencies from ${{ inputs.requirements-file }}"
+        else
+          echo "Warning: Requirements file ${{ inputs.requirements-file }} not found, skipping dependencies"
+        fi
+
+        # Create version info file if requested
+        if [ "${{ inputs.include-version-file }}" = "true" ]; then
+          echo "version: ${{ inputs.version-tag }}" > version.txt
+          echo "build_time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> version.txt
+          echo "commit: $(git rev-parse HEAD 2>/dev/null || echo 'unknown')" >> version.txt
+          echo "branch: $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')" >> version.txt
+          echo "Created version.txt"
+        fi
+
+        # Create zip package
+        zip -r "../${{ inputs.output-file }}" . -q
+        cd ..
+
+        # Output package path
+        PACKAGE_PATH="$(pwd)/${{ inputs.output-file }}"
+        echo "path=$PACKAGE_PATH" >> $GITHUB_OUTPUT
+
+        # Show package info
+        ls -lh "${{ inputs.output-file }}"
+        echo "✅ Lambda package created successfully: ${{ inputs.output-file }}"

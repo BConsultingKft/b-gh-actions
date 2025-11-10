@@ -1,0 +1,24 @@
+name: 'Secret Scanning with TruffleHog'
+description: 'Scans repository for secrets using TruffleHog'
+branding:
+  icon: 'shield'
+  color: 'red'
+
+inputs:
+  extra_args:
+    description: 'Extra arguments to pass to TruffleHog'
+    required: false
+    default: '--results=verified,unknown'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Secret Scanning
+      uses: trufflesecurity/trufflehog@main
+      with:
+        extra_args: ${{ inputs.extra_args }}
