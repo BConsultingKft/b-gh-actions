@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Purpose
 
-This is a collection of reusable GitHub Actions that can be referenced by other projects within the organization. Each action should be self-contained and designed for reuse across multiple repositories.
+This is a **public** collection of reusable GitHub Actions that can be referenced by other projects within the organization. Each action should be self-contained and designed for reuse across multiple repositories.
+
+**Repository visibility**: Public (required for GitHub Actions to reference these actions from other repositories)
+
+**Current consumers**: b-onsite-sync-api, and other b-onsite projects
 
 ## Repository Structure
 
@@ -151,3 +155,204 @@ All actions in this repository are **Composite Actions** (YAML-based) that orche
 - Secrets never exposed in logs
 - Minimal necessary permissions documented in each action's README
 - All inputs validated by underlying actions/tools
+
+## Making Changes to Actions
+
+### Impact of Changes
+⚠️ **IMPORTANT**: Changes to actions affect ALL projects using them. Always consider:
+- Backward compatibility
+- Testing in a non-production project first
+- Communicating breaking changes to teams
+
+### Testing Workflow
+1. Make changes to action(s) in a feature branch
+2. Update README.md if inputs/outputs changed
+3. Test in a consuming project by temporarily referencing the branch:
+   ```yaml
+   uses: BConsultingKft/b-gh-actions/action-name@your-branch-name
+   ```
+4. Validate the action works as expected
+5. Merge to main branch
+6. Update consuming projects to use `@main` or create version tags
+
+### Creating New Actions
+1. Create directory: `mkdir action-name`
+2. Create `action.yml`:
+   ```yaml
+   name: 'Action Name'
+   description: 'What it does'
+   branding:
+     icon: 'icon-name'
+     color: 'color-name'
+
+   inputs:
+     input-name:
+       description: 'Input description'
+       required: true/false
+       default: 'optional-default'
+
+   outputs:
+     output-name:
+       description: 'Output description'
+       value: ${{ steps.step-id.outputs.output-name }}
+
+   runs:
+     using: 'composite'
+     steps:
+       - name: Step name
+         shell: bash
+         run: |
+           # Your script here
+   ```
+3. Create `README.md` with:
+   - Description
+   - Usage examples
+   - Input/output table
+   - Prerequisites
+   - Complete workflow examples
+4. Test locally if possible with `act`
+5. Test in a consuming project
+6. Update main `README.md` with the new action
+7. Update this `CLAUDE.md` with the new action
+
+### Versioning Strategy
+For now, all projects reference `@main` for rapid iteration. In the future:
+- Create version tags when actions stabilize: `v1.0.0`
+- Move major version tags: `git tag -f v1` and `git push -f origin v1`
+- Projects can reference `@v1` for stability
+- Document breaking changes in GitHub releases
+
+## Real-World Usage Examples
+
+### Example: b-onsite-sync-api
+
+The b-onsite-sync-api project demonstrates typical usage patterns:
+
+**CI Workflow** (`ci.yml`):
+```yaml
+- name: Secret Scanning
+  uses: BConsultingKft/b-gh-actions/secret-scanning@main
+```
+
+**Dev Deployment** (`dev-deploy-on-comment.yml`):
+```yaml
+- name: Handle PR comment
+  id: pr
+  uses: BConsultingKft/b-gh-actions/pr-comment-handler@main
+  with:
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+
+- name: Create Lambda package
+  id: package
+  uses: BConsultingKft/b-gh-actions/lambda-package-python@main
+  with:
+    version-tag: snapshot-${{ steps.pr.outputs.pr-sha }}
+    python-version: '3.11'
+
+- name: Configure AWS
+  uses: BConsultingKft/b-gh-actions/aws-configure@main
+
+- name: Upload to S3
+  id: upload
+  uses: BConsultingKft/b-gh-actions/upload-lambda-package-s3@main
+  with:
+    package-file: ${{ steps.package.outputs.package-path }}
+    s3-bucket: bos-common-shared-infra-lambda-packages
+    s3-key: sync-api/dev/package.zip
+    version-tag: snapshot-${{ steps.pr.outputs.pr-sha }}
+
+- name: Update Lambda functions
+  uses: BConsultingKft/b-gh-actions/update-lambda-functions@main
+  with:
+    function-prefix: bos-dev-sync-api
+    s3-bucket: bos-common-shared-infra-lambda-packages
+    s3-key: sync-api/dev/package.zip
+    s3-version-id: ${{ steps.upload.outputs.version-id }}
+
+- name: Comment on success
+  if: success()
+  uses: BConsultingKft/b-gh-actions/pr-comment@main
+  with:
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+    pr-number: ${{ steps.pr.outputs.pr-number }}
+    message: '✅ Lambda deployment completed!'
+```
+
+**Production Deployment** (`deploy-to-prod.yml`):
+```yaml
+- name: Get release version
+  id: get-version
+  uses: BConsultingKft/b-gh-actions/get-release-version@main
+  with:
+    release: ${{ github.event.inputs.release }}
+    github-token: ${{ github.token }}
+
+- name: Configure AWS
+  uses: BConsultingKft/b-gh-actions/aws-configure@main
+
+- name: Get S3 package version
+  id: get-object-version
+  uses: BConsultingKft/b-gh-actions/get-s3-version-by-tag@main
+  with:
+    s3-bucket: bos-common-shared-infra-lambda-packages
+    s3-key: sync-api/prod/package.zip
+    version-tag: ${{ steps.get-version.outputs.version }}
+
+- name: Update Lambda functions
+  uses: BConsultingKft/b-gh-actions/update-lambda-functions@main
+  with:
+    function-prefix: bos-prod-sync-api
+    s3-bucket: bos-common-shared-infra-lambda-packages
+    s3-key: sync-api/prod/package.zip
+    s3-version-id: ${{ steps.get-object-version.outputs.version-id }}
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**"Unable to resolve action" error**
+- Ensure repository is public
+- Check action path is correct: `BConsultingKft/b-gh-actions/action-name@main`
+- Verify the action directory exists in the repository
+
+**Action not found in subdirectory**
+- Each action must have an `action.yml` file in its directory
+- Path format: `owner/repo/subdirectory@ref`
+
+**Workflow fails with "Required input not provided"**
+- Check the action's README for required inputs
+- Ensure all required inputs have values in the workflow
+
+**AWS authentication fails**
+- Verify workflow has `id-token: write` permission
+- Check IAM role ARN is correct
+- Ensure OIDC trust relationship is configured in AWS
+
+**S3 version not found**
+- Verify S3 versioning is enabled on the bucket
+- Check the version tag matches exactly (case-sensitive)
+- Ensure the package was uploaded with the correct tag
+
+### Debugging Actions
+
+To debug an action in a consuming project:
+1. Add debugging output in the action's shell scripts:
+   ```bash
+   echo "Debug: variable value is $VARIABLE"
+   ```
+2. Check the workflow run logs in GitHub Actions
+3. Use `act` locally to test if possible
+4. Reference a feature branch to test changes:
+   ```yaml
+   uses: BConsultingKft/b-gh-actions/action-name@debug-branch
+   ```
+
+## Benefits of This Approach
+
+- **Code Reduction**: Projects using these actions see 70-80% reduction in workflow code
+- **Consistency**: Same patterns across all b-onsite projects
+- **Maintainability**: Update once, apply everywhere
+- **Testing**: Actions can be tested independently
+- **Documentation**: Centralized documentation in action READMEs
+- **Reusability**: Easy to adopt in new projects
