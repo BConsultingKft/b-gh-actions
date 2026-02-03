@@ -1,0 +1,42 @@
+name: 'ECS Update Service'
+description: 'Updates an ECS service with a new task definition'
+branding:
+  icon: 'refresh-cw'
+  color: 'orange'
+
+inputs:
+  cluster-name:
+    description: 'ECS cluster name'
+    required: true
+  service-name:
+    description: 'ECS service name'
+    required: true
+  task-definition-arn:
+    description: 'ARN of the task definition to deploy'
+    required: true
+  force-new-deployment:
+    description: 'Force a new deployment even if task definition has not changed (default: true)'
+    required: false
+    default: 'true'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Update ECS service
+      shell: bash
+      run: |
+        FORCE_FLAG=""
+        if [ "${{ inputs.force-new-deployment }}" = "true" ]; then
+          FORCE_FLAG="--force-new-deployment"
+        fi
+
+        aws ecs update-service \
+          --cluster "${{ inputs.cluster-name }}" \
+          --service "${{ inputs.service-name }}" \
+          --task-definition "${{ inputs.task-definition-arn }}" \
+          $FORCE_FLAG
+
+        echo "ECS service updated successfully"
+        echo "- Cluster: ${{ inputs.cluster-name }}"
+        echo "- Service: ${{ inputs.service-name }}"
+        echo "- Task Definition: ${{ inputs.task-definition-arn }}"

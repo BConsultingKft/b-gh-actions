@@ -25,56 +25,35 @@ inputs:
     required: false
     default: '0'
 
+outputs:
+  task-definition-arn:
+    description: 'ARN of the newly registered task definition'
+    value: ${{ steps.register-task-def.outputs.task-definition-arn }}
+
 runs:
   using: 'composite'
   steps:
-    - name: Deploy to ECS
+    - name: Register task definition
+      id: register-task-def
+      uses: BConsultingKft/b-gh-actions/ecs-register-task-definition@main
+      with:
+        ecr-image: ${{ inputs.ecr-image }}
+        task-family: ${{ inputs.task-family }}
+        task-def-ssm-param: ${{ inputs.task-def-ssm-param }}
+        container-index: ${{ inputs.container-index }}
+
+    - name: Update ECS service
+      uses: BConsultingKft/b-gh-actions/ecs-update-service@main
+      with:
+        cluster-name: ${{ inputs.cluster-name }}
+        service-name: ${{ inputs.service-name }}
+        task-definition-arn: ${{ steps.register-task-def.outputs.task-definition-arn }}
+
+    - name: Summary
       shell: bash
       run: |
-        # Get task definition template from Parameter Store
-        TASK_DEF_ARN=$(aws ssm get-parameter --name "${{ inputs.task-def-ssm-param }}" --query "Parameter.Value" --output text)
-
-        # Get the task definition JSON
-        TASK_DEF_JSON=$(aws ecs describe-task-definition --task-definition "$TASK_DEF_ARN" --query 'taskDefinition | {
-          family: family,
-          taskRoleArn: taskRoleArn,
-          executionRoleArn: executionRoleArn,
-          networkMode: networkMode,
-          containerDefinitions: containerDefinitions,
-          volumes: volumes,
-          placementConstraints: placementConstraints,
-          requiresCompatibilities: requiresCompatibilities,
-          cpu: cpu,
-          memory: memory
-        }' --output json)
-
-        # Create a temporary file for the task definition
-        echo "$TASK_DEF_JSON" > task-def.json
-
-        # Update the image in the task definition
-        jq --arg IMAGE "${{ inputs.ecr-image }}" --argjson INDEX "${{ inputs.container-index }}" \
-          '.containerDefinitions[$INDEX].image = $IMAGE' task-def.json > task-def-new.json
-
-        # Register new task definition
-        NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
-          --family "${{ inputs.task-family }}" \
-          --cli-input-json "$(cat task-def-new.json)" \
-          --query "taskDefinition.taskDefinitionArn" \
-          --output text)
-
-        echo "Registered new task definition: $NEW_TASK_DEF_ARN"
-
-        # Clean up temporary files
-        rm task-def.json task-def-new.json
-
-        # Update the service with new task definition
-        aws ecs update-service \
-          --cluster "${{ inputs.cluster-name }}" \
-          --service "${{ inputs.service-name }}" \
-          --task-definition "$NEW_TASK_DEF_ARN" \
-          --force-new-deployment
-
         echo "✅ ECS service updated successfully"
         echo "- Cluster: ${{ inputs.cluster-name }}"
         echo "- Service: ${{ inputs.service-name }}"
         echo "- Image: ${{ inputs.ecr-image }}"
+        echo "- Task Definition: ${{ steps.register-task-def.outputs.task-definition-arn }}"
