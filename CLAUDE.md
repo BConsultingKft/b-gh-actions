@@ -60,7 +60,9 @@ This repository contains the following reusable actions:
 ### AWS Infrastructure
 - **aws-configure**: Configure AWS credentials using OIDC (default: bos-common-shared_infra-gha-trust role)
 - **build-push-ecr**: Build Docker image and push to ECR
-- **deploy-ecs**: Deploy to ECS by updating task definition and service
+- **deploy-ecs**: Deploy to ECS by updating task definition and service (uses ecs-register-task-definition + ecs-update-service)
+- **ecs-register-task-definition**: Register a new ECS task definition with updated container image
+- **ecs-update-service**: Update an ECS service with a task definition ARN
 - **deploy-frontend-s3-cloudfront**: Deploy frontend to S3 and invalidate CloudFront
 
 ### AWS Lambda

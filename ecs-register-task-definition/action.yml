@@ -1,0 +1,73 @@
+name: 'ECS Register Task Definition'
+description: 'Registers a new ECS task definition with an updated container image'
+branding:
+  icon: 'file-text'
+  color: 'orange'
+
+inputs:
+  ecr-image:
+    description: 'Full ECR image URI with tag (e.g., 123456789012.dkr.ecr.eu-central-1.amazonaws.com/repo:tag)'
+    required: true
+  task-family:
+    description: 'ECS task definition family name'
+    required: true
+  task-def-ssm-param:
+    description: 'SSM parameter name containing the task definition template ARN'
+    required: true
+  container-index:
+    description: 'Index of the container in the task definition to update (default: 0)'
+    required: false
+    default: '0'
+
+outputs:
+  task-definition-arn:
+    description: 'ARN of the newly registered task definition'
+    value: ${{ steps.register.outputs.task-definition-arn }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Register task definition
+      id: register
+      shell: bash
+      run: |
+        # Get task definition template from Parameter Store
+        TASK_DEF_ARN=$(aws ssm get-parameter --name "${{ inputs.task-def-ssm-param }}" --query "Parameter.Value" --output text)
+
+        # Get the task definition JSON
+        TASK_DEF_JSON=$(aws ecs describe-task-definition --task-definition "$TASK_DEF_ARN" --query 'taskDefinition | {
+          family: family,
+          taskRoleArn: taskRoleArn,
+          executionRoleArn: executionRoleArn,
+          networkMode: networkMode,
+          containerDefinitions: containerDefinitions,
+          volumes: volumes,
+          placementConstraints: placementConstraints,
+          requiresCompatibilities: requiresCompatibilities,
+          cpu: cpu,
+          memory: memory
+        }' --output json)
+
+        # Create a temporary file for the task definition
+        TEMP_FILE=$(mktemp)
+        echo "$TASK_DEF_JSON" > "$TEMP_FILE"
+
+        # Update the image in the task definition
+        TEMP_FILE_NEW=$(mktemp)
+        jq --arg IMAGE "${{ inputs.ecr-image }}" --argjson INDEX "${{ inputs.container-index }}" \
+          '.containerDefinitions[$INDEX].image = $IMAGE' "$TEMP_FILE" > "$TEMP_FILE_NEW"
+
+        # Register new task definition
+        NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
+          --family "${{ inputs.task-family }}" \
+          --cli-input-json "$(cat "$TEMP_FILE_NEW")" \
+          --query "taskDefinition.taskDefinitionArn" \
+          --output text)
+
+        echo "Registered new task definition: $NEW_TASK_DEF_ARN"
+
+        # Clean up temporary files
+        rm "$TEMP_FILE" "$TEMP_FILE_NEW"
+
+        # Set output
+        echo "task-definition-arn=$NEW_TASK_DEF_ARN" >> "$GITHUB_OUTPUT"
