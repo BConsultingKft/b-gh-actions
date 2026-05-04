@@ -19,6 +19,10 @@ inputs:
     description: 'Paths to invalidate in CloudFront'
     required: false
     default: '/*'
+  exclude:
+    description: 'Space-separated list of patterns to exclude from the S3 sync (e.g. "config.json *.map")'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -27,7 +31,13 @@ runs:
       shell: bash
       run: |
         echo "Uploading to S3 bucket: ${{ inputs.s3-bucket }}"
-        aws s3 sync "${{ inputs.build-dir }}" "s3://${{ inputs.s3-bucket }}" --delete
+        EXCLUDE_FLAGS=""
+        if [ -n "${{ inputs.exclude }}" ]; then
+          for pattern in ${{ inputs.exclude }}; do
+            EXCLUDE_FLAGS="$EXCLUDE_FLAGS --exclude $pattern"
+          done
+        fi
+        aws s3 sync "${{ inputs.build-dir }}" "s3://${{ inputs.s3-bucket }}" --delete $EXCLUDE_FLAGS
         echo "✅ Upload to S3 completed"
 
     - name: Invalidate CloudFront cache
