@@ -1,0 +1,57 @@
+name: 'Schema Gate'
+description: 'Fails the deploy if the b-onsite schema version the build needs is not applied on the target environment'
+branding:
+  icon: 'database'
+  color: 'red'
+
+inputs:
+  env:
+    description: 'Target environment (dev or prod)'
+    required: true
+  submodule-path:
+    description: 'Path of the b-onsite-database submodule (contains migrations/V*.sql)'
+    required: false
+    default: 'db'
+
+outputs:
+  required-version:
+    description: 'Highest migration version found in the submodule'
+    value: ${{ steps.check.outputs.required-version }}
+  env-max-version:
+    description: 'Highest schema version applied on the environment'
+    value: ${{ steps.check.outputs.env-max-version }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Read applied schema versions
+      id: ssm
+      shell: bash
+      env:
+        GATE_ENV: ${{ inputs.env }}
+      run: |
+        case "$GATE_ENV" in
+          dev|prod) ;;
+          *) echo "::error::schema-gate: env must be 'dev' or 'prod', got '$GATE_ENV'"; exit 1 ;;
+        esac
+        PARAM="/bos-${GATE_ENV}-database/schema-versions"
+        if ! VALUE=$(aws ssm get-parameter --name "$PARAM" --query Parameter.Value --output text); then
+          echo "::error::schema-gate: could not read SSM parameter $PARAM. Run aws-configure before schema-gate, and make sure the role has ssm:GetParameter on it."
+          exit 1
+        fi
+        DELIM="SCHEMA_GATE_EOF_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+        {
+          echo "versions<<$DELIM"
+          echo "$VALUE"
+          echo "$DELIM"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Check schema version
+      id: check
+      shell: bash
+      env:
+        GATE_ENV: ${{ inputs.env }}
+        GATE_MIGRATIONS_DIR: ${{ inputs.submodule-path }}/migrations
+        GATE_APPLIED: ${{ steps.ssm.outputs.versions }}
+      run: |
+        bash "$GITHUB_ACTION_PATH/check.sh" "$GATE_ENV" "$GATE_MIGRATIONS_DIR" "$GATE_APPLIED"

@@ -1,0 +1,80 @@
+name: Test schema-gate
+
+on:
+  pull_request:
+    paths:
+      - 'schema-gate/**'
+      - '.github/workflows/test-schema-gate.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'schema-gate/**'
+      - '.github/workflows/test-schema-gate.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unit tests (check.sh)
+        run: bash schema-gate/tests/test.sh
+
+      - name: Lint workflow and action
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          ./actionlint -color
+
+      # Smoke test of action.yml wiring with a fake aws CLI (no AWS access)
+      - name: Set up fixture and fake aws
+        run: |
+          mkdir -p "$RUNNER_TEMP/fixture/db/migrations" "$RUNNER_TEMP/bin"
+          touch "$RUNNER_TEMP/fixture/db/migrations/V1__baseline.sql" \
+                "$RUNNER_TEMP/fixture/db/migrations/V20261029143000__BO-975_test.sql"
+          cat > "$RUNNER_TEMP/bin/aws" <<'EOF'
+          #!/usr/bin/env bash
+          case "$*" in
+            *"/bos-dev-database/schema-versions"*) echo "1,20261029143000" ;;
+            *"/bos-prod-database/schema-versions"*) echo "1" ;;
+            *) echo "unexpected aws call: $*" >&2; exit 1 ;;
+          esac
+          EOF
+          chmod +x "$RUNNER_TEMP/bin/aws"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Gate passes on dev
+        id: dev
+        uses: ./schema-gate
+        with:
+          env: dev
+          submodule-path: ${{ runner.temp }}/fixture/db
+
+      - name: Gate fails on prod (behind)
+        id: prod
+        continue-on-error: true
+        uses: ./schema-gate
+        with:
+          env: prod
+          submodule-path: ${{ runner.temp }}/fixture/db
+
+      - name: Gate rejects an invalid env
+        id: badenv
+        continue-on-error: true
+        uses: ./schema-gate
+        with:
+          env: staging
+          submodule-path: ${{ runner.temp }}/fixture/db
+
+      - name: Assert outcomes
+        env:
+          DEV_REQUIRED: ${{ steps.dev.outputs.required-version }}
+          PROD_OUTCOME: ${{ steps.prod.outcome }}
+          BADENV_OUTCOME: ${{ steps.badenv.outcome }}
+        run: |
+          set -x
+          [ "$DEV_REQUIRED" = "20261029143000" ]
+          [ "$PROD_OUTCOME" = "failure" ]
+          [ "$BADENV_OUTCOME" = "failure" ]
