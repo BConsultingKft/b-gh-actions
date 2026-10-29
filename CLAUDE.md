@@ -74,6 +74,9 @@ This repository contains the following reusable actions:
 ### Release Management
 - **get-release-version**: Get latest release or validate specific version
 
+### Database
+- **schema-gate**: Fail a deploy if the max migration version in the `db/` submodule is not in SSM `/bos-<env>-database/schema-versions`
+
 ### Pull Request Workflow
 - **pr-comment-handler**: Get PR details and checkout PR branch from issue comment
 - **pr-comment**: Post comment on pull request

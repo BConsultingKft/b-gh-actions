@@ -122,6 +122,19 @@ Gets the latest release version or validates a provided version exists.
 
 ---
 
+### 🗄️ Database
+
+#### [schema-gate](./schema-gate)
+Fails a deploy if the b-onsite schema version in the `db/` submodule is not applied on the target environment.
+
+```yaml
+- uses: BConsultingKft/b-gh-actions/schema-gate@main
+  with:
+    env: dev
+```
+
+---
+
 ### 🔄 Pull Request Workflow
 
 #### [pr-comment-handler](./pr-comment-handler)
