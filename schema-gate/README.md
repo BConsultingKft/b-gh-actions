@@ -17,24 +17,39 @@ are ignored.
 
 ## Usage
 
+Check the consumer repo out as usual, then the submodule separately at its gitlink commit with a token of the GitHub
+App that can read b-onsite-database:
+
 ```yaml
 permissions:
   id-token: write
   contents: read
 
 steps:
-  - uses: actions/create-github-app-token@v1
-    id: app-token
+  - uses: actions/checkout@v4
+
+  - name: GitHub App token for b-onsite-database
+    id: db-token
+    uses: actions/create-github-app-token@v2
     with:
       app-id: ${{ secrets.DB_APP_ID }}
       private-key: ${{ secrets.DB_APP_PRIVATE_KEY }}
       owner: BConsultingKft
       repositories: b-onsite-database
+      permission-contents: read
 
-  - uses: actions/checkout@v4
+  - name: Resolve the db submodule commit
+    id: db-ref
+    run: echo "sha=$(git rev-parse HEAD:db)" >> "$GITHUB_OUTPUT"
+
+  - name: Check out the db submodule
+    uses: actions/checkout@v4
     with:
-      submodules: true
-      token: ${{ steps.app-token.outputs.token }}
+      repository: BConsultingKft/b-onsite-database
+      ref: ${{ steps.db-ref.outputs.sha }}
+      path: db
+      token: ${{ steps.db-token.outputs.token }}
+      persist-credentials: false
 
   - name: Configure AWS
     uses: BConsultingKft/b-gh-actions/aws-configure@main
@@ -44,6 +59,13 @@ steps:
     with:
       env: dev   # or prod in deploy-to-prod
 ```
+
+Don't use `actions/checkout` with `submodules: true` and the App token: checkout uses that one token for the consumer
+repo too, and the App is not installed on the consumer repos, so the checkout fails.
+
+A workflow that deploys a release tag while it checks out the default branch resolves the gitlink at that tag
+instead (`git fetch --no-tags --depth=1 origin "refs/tags/$TAG:refs/tags/$TAG"`, then
+`git rev-parse --verify "refs/tags/$TAG:db"`), so the gate checks the schema the release was built with.
 
 Run the gate before any deploy step. Reference `@main` until a version tag is cut.
 
@@ -66,7 +88,7 @@ Run the gate before any deploy step. Reference `@main` until a version tag is cu
 - AWS credentials configured first (`aws-configure`). The role needs `ssm:GetParameter` on
   `arn:aws:ssm:eu-central-1:736766805372:parameter/bos-<env>-database/schema-versions`
   (`bos-common-shared_infra-gha-trust` has it via its `parameter/bos-<env>-*` grant).
-- The submodule checked out (`submodules: true` with a token that can read b-onsite-database).
+- The submodule checked out at its gitlink commit, with a token that can read b-onsite-database (Usage).
 
 ## Failure messages
 
