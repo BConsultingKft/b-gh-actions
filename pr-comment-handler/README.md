@@ -1,6 +1,15 @@
 # PR Comment Handler Action
 
-Gets PR details from an issue comment event and checks out the PR branch.
+Gets PR details from an issue comment event, refuses untrusted requests, and checks out the PR head commit.
+
+## Guard
+
+Before anything is checked out, the action refuses (fails the step and sets the `refused` output) when:
+
+- the PR comes from a fork (`head.repo.full_name` is not this repository), or
+- the commenter (`comment.user.login`) does not have `admin`, `maintain` or `write` permission on the repository.
+
+The `pr-*` outputs are set **before** the guard runs, so the caller's failure-comment steps can still use them.
 
 ## Usage
 
@@ -41,6 +50,7 @@ jobs:
 | `pr-ref` | Pull request branch ref |
 | `pr-sha` | Pull request HEAD SHA |
 | `pr-repo` | Pull request repository full name |
+| `refused` | Reason the request was refused (fork, or commenter without write access); empty when allowed |
 
 ## Prerequisites
 
@@ -51,7 +61,7 @@ on:
     types: [created]
 ```
 
-Required workflow permissions:
+Required workflow permissions (enough for the PR and collaborator-permission APIs with `GITHUB_TOKEN`):
 ```yaml
 permissions:
   pull-requests: read
@@ -61,8 +71,11 @@ permissions:
 ## What it does
 
 1. Fetches PR details using the GitHub API
-2. Extracts and outputs PR metadata (number, ref, SHA, repo)
-3. Checks out the PR branch
+2. Outputs PR metadata (number, ref, SHA, repo)
+3. Refuses PRs from forks and commenters without write access (sets `refused`, fails)
+4. Checks out the PR head **SHA** (not the branch name, so a push after the comment cannot change what is built) from this repository, with `persist-credentials: false` so the token is not left in `.git/config`
+
+Because credentials are not persisted, later steps that need to `git push` or `git fetch` with auth must set up credentials themselves.
 
 ## Example: Deploy on comment
 
@@ -90,4 +103,12 @@ jobs:
         run: |
           echo "Building PR ${{ steps.pr.outputs.pr-number }}"
           # Your build and deploy steps here
+
+      - name: Comment the refusal
+        if: failure() && steps.pr.outputs.refused
+        uses: organization/b-gh-actions/pr-comment@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pr-number: ${{ github.event.issue.number }}
+          message: "Dev deploy refused: ${{ steps.pr.outputs.refused }}"
 ```

@@ -42,5 +42,6 @@ Gets the latest release version from GitHub or validates a provided version exis
 ## Behavior
 
 - If `release` is `<<latest>>`, fetches the most recent release
-- If `release` is a specific version, validates it exists
+- If `release` is a specific version, it must match `^[A-Za-z0-9._/-]+$` (otherwise the action exits with an error), then validates it exists
+- The input is passed to the script via an environment variable, never interpolated into the shell script
 - Exits with error if no releases found or specified version doesn't exist
