@@ -1,5 +1,5 @@
 name: 'PR Comment Handler'
-description: 'Gets PR details and checks out PR branch from issue comment'
+description: 'Gets PR details, refuses forks and commenters without write access, and checks out the PR head SHA'
 branding:
   icon: 'git-pull-request'
   color: 'purple'
@@ -22,6 +22,9 @@ outputs:
   pr-repo:
     description: 'Pull request repository full name'
     value: ${{ steps.get-pr.outputs.pr-repo }}
+  refused:
+    description: 'Reason the request was refused (PR from a fork, or commenter without write access); empty when allowed'
+    value: ${{ steps.get-pr.outputs.refused }}
 
 runs:
   using: 'composite'
@@ -32,21 +35,37 @@ runs:
       with:
         github-token: ${{ inputs.github-token }}
         script: |
+          const { owner, repo } = context.repo;
           const { data: pullRequest } = await github.rest.pulls.get({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
+            owner,
+            repo,
             pull_number: context.issue.number
           });
 
+          // Set the PR outputs first so the caller's failure-comment steps still work on refusal.
           core.setOutput('pr-number', context.issue.number);
           core.setOutput('pr-ref', pullRequest.head.ref);
           core.setOutput('pr-sha', pullRequest.head.sha);
           core.setOutput('pr-repo', pullRequest.head.repo.full_name);
 
-          return pullRequest;
+          const refuse = (reason) => { core.setOutput('refused', reason); core.setFailed(reason); };
+
+          if (pullRequest.head.repo.full_name !== `${owner}/${repo}`) {
+            return refuse('the PR comes from a fork');
+          }
+
+          const commenter = context.payload.comment.user.login;
+          const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
+            owner,
+            repo,
+            username: commenter
+          });
+          if (!['admin', 'maintain', 'write'].includes(perm.role_name)) {
+            return refuse(`@${commenter} has no write access`);
+          }
 
     - name: Checkout PR
       uses: actions/checkout@v4
       with:
-        ref: ${{ steps.get-pr.outputs.pr-ref }}
-        repository: ${{ steps.get-pr.outputs.pr-repo }}
+        ref: ${{ steps.get-pr.outputs.pr-sha }}
+        persist-credentials: false

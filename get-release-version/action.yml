@@ -25,7 +25,7 @@ runs:
       id: get-version
       shell: bash
       run: |
-        if [ "${{ inputs.release }}" = "<<latest>>" ]; then
+        if [ "$RELEASE" = "<<latest>>" ]; then
           # Get latest release version
           RELEASE_VERSION=$(gh release list --limit 1 | cut -f1)
           if [ -z "$RELEASE_VERSION" ]; then
@@ -33,8 +33,12 @@ runs:
             exit 1
           fi
         else
+          if ! [[ "$RELEASE" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "Invalid release version: only letters, digits and . _ / - are allowed"
+            exit 1
+          fi
           # Validate provided release version exists
-          RELEASE_VERSION="${{ inputs.release }}"
+          RELEASE_VERSION="$RELEASE"
           if ! gh release view "$RELEASE_VERSION" &>/dev/null; then
             echo "Release $RELEASE_VERSION not found"
             exit 1
@@ -43,4 +47,5 @@ runs:
         echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
         echo "Using release version: $RELEASE_VERSION"
       env:
+        RELEASE: ${{ inputs.release }}
         GH_TOKEN: ${{ inputs.github-token }}
